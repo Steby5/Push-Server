@@ -1,0 +1,8 @@
+{
+  "visible": {
+    "tcp": true,
+    "udp": false,
+    "serial": true
+  },
+  "layout": "horizontal"
+}
