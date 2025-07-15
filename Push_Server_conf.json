@@ -3,7 +3,7 @@
     "interface": "10.2.7.120",
     "port": "1234",
     "close_hex": "61 62 63 0D 0A",
-    "timeout": "20",
+    "timeout": "10",
     "max_conn": "3",
     "file": "C:\\Users\\D_Steblaj\\Desktop\\Push Server\\tcp_log.txt"
   },
