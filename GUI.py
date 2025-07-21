@@ -9,9 +9,12 @@ import tkinter as tk
 from tkinter import filedialog, scrolledtext, messagebox
 import serial
 import serial.tools.list_ports
+import serial_asyncio
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from queue import Queue
+import asyncio
+import time
 
 
 # === Global Config ===
@@ -329,52 +332,54 @@ def create_server_frame(parent, title, default_file, service_type="tcp"):
             unified_log(line, log_file=file_entry.get(), gui_callback=log_callback)
         text_widget.after(100, poll_serial_queue)
 
-    def read_serial_data_q(ser):
-        buffer = b""
+    async def read_serial_data_q_async(ser, stop_event, serial_queue):
+        buffer = bytearray()
         flush_timer = time.time()
-
         baud = ser.baudrate
         bytes_per_sec = baud / 10.0
 
-        while not stop_event.is_set():
-            try:
-                if not ser.is_open:
+        reader, _ = await serial_asyncio.open_serial_connection(url=ser.port, baudrate=baud)
+
+        try:
+            while not stop_event.is_set():
+                try:
+                    chunk = await reader.read(ser.in_waiting or 1)
+                    if chunk:
+                        buffer.extend(chunk)
+                        flush_timer = time.time()
+
+                        while b"\n" in buffer:
+                            line_end = buffer.index(b"\n")
+                            line = buffer[:line_end]
+                            buffer = buffer[line_end + 1:]
+
+                            decoded = line.decode(errors='ignore').strip('\n')
+                            if decoded:
+                                await serial_queue.put(f"{ser.port} {decoded}")
+
+                    idle_time = time.time() - flush_timer
+                    flush_timeout = max(0.1, min(1.5, (len(buffer) + 1) / bytes_per_sec * 3))
+
+                    if idle_time > flush_timeout and buffer:
+                        decoded = buffer.decode(errors='ignore').rstrip('\n')
+                        if decoded:
+                            await serial_queue.put(f"{ser.port} [partial] {decoded}")
+                        buffer.clear()
+
+                except Exception as e:
+                    await serial_queue.put(f"{ser.port} read error: {e}")
                     break
 
-                chunk = ser.read(ser.in_waiting or 1)
-                if chunk:
-                    buffer += chunk
-                    flush_timer = time.time()
+                await asyncio.sleep(0.01)
 
-                    while b"\n" in buffer:
-                        line, buffer = buffer.split(b"\n", 1)
-                        try:
-                            decoded = line.decode(errors='ignore').strip('\r')
-                            if decoded:
-                                serial_queue.put(f"{ser.port} {decoded}")
-                        except UnicodeDecodeError:
-                            continue
-                
-                estimated_flush_timeout = max(0.1, min(1.5, (len(buffer) + 1) / bytes_per_sec * 3))
-                idle = time.time() - flush_timer
+        finally:
+            try:
+                reader._transport.close()
+            except Exception:
+                pass
 
-                if idle > estimated_flush_timeout and buffer:
-                    try:
-                        decoded = buffer.decode(errors='ignore').rstrip('\r\n')
-                        if decoded:
-                            serial_queue.put(f"{ser.port} [partial] {decoded}")
-                        buffer = b""
-                    except:
-                        buffer = b""    
-            except Exception as e:
-                serial_queue.put(f"{ser.port} read error: {e}")
-                break
-
-            time.sleep(0.01)
-        try:
-            ser.close()
-        except:
-            pass
+            except:
+                pass
 
 
     def toggle_server():
@@ -404,7 +409,7 @@ def create_server_frame(parent, title, default_file, service_type="tcp"):
                     serial_obj = serial.Serial(port, baudrate=baud, bytesize=databits,
                                                parity=parity, stopbits=stopbits, timeout=1)
                     stop_event.clear()
-                    serial_thread = threading.Thread(target=read_serial_data_q, args=(serial_obj,), daemon=True)
+                    serial_thread = asyncio.create_task(read_serial_data_q_async(serial_obj, stop_event, serial_queue))
                     serial_thread.start()
                     poll_serial_queue()
                     unified_log(f"Serial listening on {port} @ {baud}", log_file=log_file, gui_callback=log_callback)
@@ -421,7 +426,7 @@ def create_server_frame(parent, title, default_file, service_type="tcp"):
 
                     if service_type == "tcp":
                         close_hex = close_entry.get()
-                        timeout = int(timeout_entry.get())
+                        timeout = float(timeout_entry.get())
                         max_conn = int(max_conn_entry.get())
                         trigger_bytes = bytes.fromhex(close_hex)
                         server_thread = TCPServerThread(interface, port, timeout, max_conn, trigger_bytes, output_file, log_callback, test_mode.get())
@@ -736,6 +741,14 @@ def open_udp_client():
 # === Main GUI Launcher ===
 
 def launch_gui():
+    def run_asyncio_loop():
+        try:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(asyncio.sleep(0.1))
+        except:
+            pass
+        root.after(10, run_asyncio_loop)
+
     global tcp_widgets, udp_widgets
     root = ttk.Window(themename="darkly")
     root.title("TCP/UDP Server GUI")
@@ -877,6 +890,7 @@ def launch_gui():
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_closing)
+    root.after(10, run_asyncio_loop)
     root.mainloop()
 
 # === ================= ===
