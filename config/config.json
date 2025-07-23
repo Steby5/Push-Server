@@ -1,0 +1,39 @@
+{
+  "debug": false,
+  "theme": "light",
+  "services": [
+    {
+      "name": "tcp_1",
+      "type": "tcp",
+      "enabled": true,
+      "settings": {
+        "host": "127.0.0.1",
+        "port": 9000,
+        "timeout": 5,
+        "max_connections": 100
+      }
+    },
+    {
+      "name": "udp_1",
+      "type": "udp",
+      "enabled": true,
+      "settings": {
+        "host": "127.0.0.1",
+        "port": 9001
+      }
+    },
+    {
+      "name": "serial_1",
+      "type": "serial",
+      "enabled": true,
+      "settings": {
+        "port": "COM3",
+        "baudrate": 9600,
+        "timeout": 5,
+        "parity": "N",
+        "stopbits": 1,
+        "bytesize": 8
+      }
+    }
+  ]
+}

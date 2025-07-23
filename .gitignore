@@ -1,3 +1,4 @@
 *.txt
 logs/*
 scripts/__pycache__/
+backend/__pycache__/
